@@ -40,6 +40,12 @@ public partial class AutoHideTabStrip : Control
     // client is told which of them, if any, has its panel out.
     internal IReadOnlyList<AutoHideTabItem> Tabs => tabs;
 
+    // Gets or sets a value indicating whether the groups are laid out one after another from the start
+    // of the strip, ignoring where their panels were. The strip of a collapsed panel that stays
+    // inside the layout is as long as the area the panel came out of, so there is nothing to align
+    // to.
+    internal bool IgnoreOffsets { get; set; }
+
     // Replaces the auto-hide groups shown by this strip.
     internal void SetGroups(IEnumerable<AutoHideGroup> newGroups)
     {
@@ -98,7 +104,7 @@ public partial class AutoHideTabStrip : Control
                 tabs.Add(tab);
             }
 
-            AutoHideStripPanel.SetOffsetHint(panel, group.Offset);
+            AutoHideStripPanel.SetOffsetHint(panel, IgnoreOffsets ? 0 : group.Offset);
             host.Children.Add(panel);
         }
 

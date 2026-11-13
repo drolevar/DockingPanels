@@ -31,6 +31,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `DockSite.DockDocument(document, target, side)` and `DockSite.AttachDocument(document, target)`,
   the document twins of `DockToolWindow` beside another window and `AttachToolWindow`: split the
   group of another document, or add a tab to it, from code. Until now only dragging could do either.
+- `DockSite.AutoHideStripPlacement` (`Edge`, the default, or `InPlace`) chooses where the tabs of a
+  collapsed panel go. `InPlace` keeps the strip at the end of the area the panel came out of, inside
+  the layout, instead of along an edge of the whole dock site: the panels beside that area keep their
+  full length (before, a strip under the documents left a blank band under the panels next to them),
+  and the panel slides out over that area only. A panel with no place for a strip in the layout
+  (in the middle of a split, the only pane of its host, or one tab of a group that stays docked) goes
+  to an edge as before. The layout file records where each group's tabs were (a new optional
+  `StripPlacement` attribute), so a layout saved with a strip in place loads it in place whatever
+  the property says when it is loaded; a file without the attribute follows the property.
 
 ## [1.6.0] - 2026-11-02
 

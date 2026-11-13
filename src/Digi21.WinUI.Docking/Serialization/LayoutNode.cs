@@ -93,6 +93,11 @@ internal sealed class AutoHideGroupNode
     // Gets or sets the container's relative size at unpin time.
     internal double RestoreRelativeSize { get; set; } = 1.0;
 
+    // Gets or sets where the group's tabs were: along the edge, or in place inside the layout.
+    // Null when the file does not say, which is what every file written before the attribute existed
+    // looks like: the group then follows the dock site's AutoHideStripPlacement.
+    internal AutoHideStripPlacement? StripPlacement { get; set; }
+
     // Gets the windows in the group, in tab order.
     internal List<LayoutWindowEntry> Windows { get; } = [];
 }

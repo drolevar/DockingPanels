@@ -1,3 +1,5 @@
+using Digi21.WinUI.Docking.Primitives;
+
 namespace Digi21.WinUI.Docking;
 
 // A group of tool windows that were auto-hidden together (they shared a container when unpinned).
@@ -29,4 +31,18 @@ internal sealed class AutoHideGroup
     // edges, Y for left/right ones), so the tab group appears aligned with where the container was
     // instead of at the start of the strip.
     internal double Offset { get; set; }
+
+    // Gets or sets the strip inside the layout that lists this group, when the dock site keeps
+    // strips in place (AutoHideStripPlacement.InPlace) and this group has a place for one. Null
+    // means the group is listed by the strip along its edge.
+    internal AutoHideStub? Stub { get; set; }
+
+    // Gets or sets where the layout the group came from said its tabs were, until they are placed.
+    // Null follows the dock site's AutoHideStripPlacement.
+    internal AutoHideStripPlacement? RequestedPlacement { get; set; }
+
+    // Gets or sets a value indicating whether the group's strip has been placed: either in the
+    // layout, or, where there was no place for it, at its edge. A group that has not been placed is
+    // one that came with a layout being loaded, whose neighbours are not all in the tree yet.
+    internal bool IsStripPlaced { get; set; }
 }

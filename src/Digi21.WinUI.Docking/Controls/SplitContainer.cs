@@ -40,13 +40,14 @@ public partial class SplitContainer : Panel
         set => SetValue(OrientationProperty, value);
     }
 
-    // Gets the children that take part in the split layout, excluding the generated splitters.
+    // Gets the children that take part in the split layout, excluding the generated splitters and
+    // the strips of collapsed panels, which are part of how the split is drawn and not panes of it.
     internal List<UIElement> GetPanes()
     {
         var panes = new List<UIElement>(Children.Count);
         foreach (var child in Children)
         {
-            if (child is not DockSplitter)
+            if (!IsDecoration(child))
             {
                 panes.Add(child);
             }
@@ -54,6 +55,18 @@ public partial class SplitContainer : Panel
 
         return panes;
     }
+
+    private static bool IsDecoration(UIElement child) => child is DockSplitter or AutoHideStub;
+
+    // Gets the strips of collapsed panels this split holds.
+    internal List<AutoHideStub> GetStubs() => [.. Children.OfType<AutoHideStub>()];
+
+    // Tells whether the split holds the strip of a collapsed panel. Such a split stays even when a
+    // single pane is left in it, because the strip needs it.
+    internal bool HasStubs => Children.OfType<AutoHideStub>().Any();
+
+    // Gets the strip this split holds on the given side, if any.
+    internal AutoHideStub? FindStub(DockSide side) => Children.OfType<AutoHideStub>().FirstOrDefault(stub => stub.Side == side);
 
     internal static double GetEffectiveRelativeSize(UIElement element)
     {
@@ -82,7 +95,7 @@ public partial class SplitContainer : Panel
         var paneCount = 0;
         foreach (var child in Children)
         {
-            if (child is not DockSplitter)
+            if (!IsDecoration(child))
             {
                 paneCount++;
             }
@@ -139,6 +152,9 @@ public partial class SplitContainer : Panel
             }
         }
 
+        // The strips of collapsed panels have a thickness of their own, which the panes do not share.
+        var reserved = MeasureStubs(horizontal, cross);
+
         double desiredMain;
         double maxChildCross = 0;
 
@@ -153,11 +169,11 @@ public partial class SplitContainer : Panel
                 maxChildCross = Math.Max(maxChildCross, horizontal ? pane.DesiredSize.Height : pane.DesiredSize.Width);
             }
 
-            desiredMain = sum + splitterCount * SplitterThickness;
+            desiredMain = sum + splitterCount * SplitterThickness + reserved;
         }
         else
         {
-            var sizes = ComputePaneSizes(panes, main);
+            var sizes = ComputePaneSizes(panes, main, reserved);
             for (var i = 0; i < panes.Count; i++)
             {
                 panes[i].Measure(horizontal ? new Size(sizes[i], cross) : new Size(cross, sizes[i]));
@@ -183,10 +199,28 @@ public partial class SplitContainer : Panel
         var horizontal = Orientation == Orientation.Horizontal;
         var main = horizontal ? finalSize.Width : finalSize.Height;
         var cross = horizontal ? finalSize.Height : finalSize.Width;
-        var sizes = ComputePaneSizes(panes, main);
+        var stubs = GetStubs();
+        var reserved = stubs.Where(stub => stub.BelongsTo(Orientation)).Sum(stub => Thickness(stub, horizontal));
+        var sizes = ComputePaneSizes(panes, main, reserved);
         var splitters = Children.OfType<DockSplitter>().ToList();
 
         double offset = 0;
+
+        // A strip at the start of the split comes before the panes, one at the end after them.
+        foreach (var stub in stubs)
+        {
+            if (!stub.BelongsTo(Orientation))
+            {
+                stub.Arrange(new Rect(0, 0, 0, 0));
+            }
+            else if (stub.IsLeading)
+            {
+                var thickness = Thickness(stub, horizontal);
+                stub.Arrange(horizontal ? new Rect(offset, 0, thickness, cross) : new Rect(0, offset, cross, thickness));
+                offset += thickness;
+            }
+        }
+
         for (var i = 0; i < panes.Count; i++)
         {
             panes[i].Arrange(horizontal
@@ -203,26 +237,54 @@ public partial class SplitContainer : Panel
             }
         }
 
+        foreach (var stub in stubs)
+        {
+            if (stub.BelongsTo(Orientation) && !stub.IsLeading)
+            {
+                var thickness = Thickness(stub, horizontal);
+                stub.Arrange(horizontal ? new Rect(offset, 0, thickness, cross) : new Rect(0, offset, cross, thickness));
+                offset += thickness;
+            }
+        }
+
         return finalSize;
     }
 
-    // Distributes the available main-axis size among panes proportionally to their relative sizes.
-    private static double[] ComputePaneSizes(List<UIElement> panes, double mainSize)
+    // Measures the strips of collapsed panels and returns how much of the split's length they take.
+    // A strip is as thick as its tabs ask along the axis and as long as the split across it.
+    private double MeasureStubs(bool horizontal, double cross)
     {
-        var sizes = new double[panes.Count];
-        var available = Math.Max(0, mainSize - (panes.Count - 1) * SplitterThickness);
-
-        double total = 0;
-        foreach (var pane in panes)
+        double reserved = 0;
+        foreach (var stub in GetStubs())
         {
-            total += GetEffectiveRelativeSize(pane);
+            if (!stub.BelongsTo(Orientation))
+            {
+                stub.Measure(new Size(0, 0));
+                continue;
+            }
+
+            stub.Measure(horizontal ? new Size(double.PositiveInfinity, cross) : new Size(cross, double.PositiveInfinity));
+            reserved += Thickness(stub, horizontal);
         }
 
+        return reserved;
+    }
+
+    private static double Thickness(AutoHideStub stub, bool horizontal)
+    {
+        return horizontal ? stub.DesiredSize.Width : stub.DesiredSize.Height;
+    }
+
+    // Distributes the available main-axis size among panes proportionally to their relative sizes,
+    // less the room the strips of collapsed panels take.
+    private static double[] ComputePaneSizes(List<UIElement> panes, double mainSize, double reserved)
+    {
+        var relativeSizes = new double[panes.Count];
         for (var i = 0; i < panes.Count; i++)
         {
-            sizes[i] = available * GetEffectiveRelativeSize(panes[i]) / total;
+            relativeSizes[i] = GetEffectiveRelativeSize(panes[i]);
         }
 
-        return sizes;
+        return SplitSizePlanner.Compute(mainSize, SplitterThickness, reserved, relativeSizes);
     }
 }

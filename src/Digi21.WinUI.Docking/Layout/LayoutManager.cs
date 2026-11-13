@@ -18,7 +18,7 @@ namespace Digi21.WinUI.Docking;
 // layout trees themselves. Walking the visual tree instead only works between layout passes: a node
 // that has just been moved has no visual parent until the next pass, so the second of two mutations
 // made in a single pass would navigate a tree it cannot see.
-internal static class LayoutManager
+internal static partial class LayoutManager
 {
     // Docks a window as a new pane at an edge of the whole dock site.
     internal static void DockToSide(DockSite site, DockingWindow window, DockSide side)
@@ -604,6 +604,10 @@ internal static class LayoutManager
         var (edge, size, offset) = MeasureForAutoHide(site, container);
         var restoreHint = CaptureRestoreHint(site, container, edge);
 
+        // Before the container leaves its split: the strip goes in beside it, so the split is not
+        // collapsed when the container is gone.
+        var stub = StubForCollapsedContainer(site, container, edge);
+
         foreach (var window in windows)
         {
             window.IsRelocating = true;
@@ -632,6 +636,8 @@ internal static class LayoutManager
         {
             RestoreHint = restoreHint,
             Offset = offset,
+            Stub = stub,
+            IsStripPlaced = true,
         });
         site.NotifyLayoutChanged(LayoutChangeKind.WindowAutoHidden);
     }
@@ -675,10 +681,13 @@ internal static class LayoutManager
             site.SetActiveWindow(null);
         }
 
+        // The container stays, holding the other windows, so there is nothing for a strip to be put
+        // beside: this one goes to an edge whatever the dock site's placement.
         site.AddAutoHideGroup(new AutoHideGroup(edge, [tool], size)
         {
             RestoreHint = restoreHint,
             Offset = offset,
+            IsStripPlaced = true,
         });
         site.NotifyLayoutChanged(LayoutChangeKind.WindowAutoHidden);
     }
@@ -726,9 +735,13 @@ internal static class LayoutManager
             ? active
             : group.Windows.FirstOrDefault();
 
-        site.RemoveAutoHideGroup(group);
+        // The strip stays until the windows are back: they are put beside the pane they sat next to,
+        // and the strip is in that pane's split, so taking it out first would collapse the split and
+        // build it again.
+        site.RemoveAutoHideGroup(group, releaseStub: false);
 
         RestoreWindows(site, group.Windows, group.RestoreHint, group.Edge);
+        site.ReleaseStubIfUnused(group.Stub);
 
         site.NotifyLayoutChanged(LayoutChangeKind.WindowDocked);
         selected?.Activate();
@@ -1123,13 +1136,20 @@ internal static class LayoutManager
     private static void CollapseSplit(DockSite site, SplitContainer split)
     {
         var panes = split.GetPanes();
-        if (panes.Count > 1)
+        if (panes.Count > 1 || (panes.Count == 1 && split.HasStubs))
         {
+            // A split that holds the strip of a collapsed panel needs to stay with a single pane: the
+            // strip is beside it.
             return;
         }
 
         if (panes.Count == 0)
         {
+            if (split.HasStubs)
+            {
+                ReturnStubsToEdges(site, split);
+            }
+
             RemoveFromParent(site, split);
             return;
         }

@@ -84,6 +84,13 @@ public partial class DockSite : Control, IDockSurface
         typeof(DockSite),
         new PropertyMetadata(Docking.AutoHideOpenTrigger.Pointer));
 
+    /// <summary>Identifies the <see cref="AutoHideStripPlacement"/> dependency property.</summary>
+    public static readonly DependencyProperty AutoHideStripPlacementProperty = DependencyProperty.Register(
+        nameof(AutoHideStripPlacement),
+        typeof(AutoHideStripPlacement),
+        typeof(DockSite),
+        new PropertyMetadata(Docking.AutoHideStripPlacement.Edge, (d, _) => LayoutManager.ReplaceAutoHideStubs((DockSite)d)));
+
     /// <summary>Identifies the <see cref="IsAutoHideAnimated"/> dependency property.</summary>
     public static readonly DependencyProperty IsAutoHideAnimatedProperty = DependencyProperty.Register(
         nameof(IsAutoHideAnimated),
@@ -299,6 +306,34 @@ public partial class DockSite : Control, IDockSurface
     {
         get => (AutoHideOpenTrigger)GetValue(AutoHideOpenTriggerProperty);
         set => SetValue(AutoHideOpenTriggerProperty, value);
+    }
+
+    /// <summary>
+    /// Gets or sets where the strip of tabs of an auto-hidden panel goes: along an edge of the dock
+    /// site, which is the default, or where the panel was.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// With <see cref="Docking.AutoHideStripPlacement.Edge"/> the strip runs along the edge of the
+    /// whole layout, so a panel that was below the documents leaves a strip under the panels beside
+    /// them too. With <see cref="Docking.AutoHideStripPlacement.InPlace"/> the strip is part of the
+    /// layout, at the end of the area the panel came out of: that area gives up the room the strip
+    /// needs and the panels beside it keep theirs, and the panel slides out over that area only.
+    /// </para>
+    /// <para>
+    /// Changing it moves the strips of the panels that are collapsed at the time. A panel with no
+    /// place for a strip in the layout — it was in the middle of a split, or it was the only pane of
+    /// its host, or it was one tab of a container that kept other windows docked — goes to an edge
+    /// whatever this says. The layout file records where each group's tabs were: a group saved in
+    /// place comes back in place, and one saved along an edge comes back along it, whatever this says
+    /// when the file is loaded. A file that does not say (one written before this was recorded)
+    /// follows this property.
+    /// </para>
+    /// </remarks>
+    public AutoHideStripPlacement AutoHideStripPlacement
+    {
+        get => (AutoHideStripPlacement)GetValue(AutoHideStripPlacementProperty);
+        set => SetValue(AutoHideStripPlacementProperty, value);
     }
 
     /// <summary>
@@ -742,7 +777,10 @@ public partial class DockSite : Control, IDockSurface
         RefreshAutoHideStrips();
     }
 
-    internal void RemoveAutoHideGroup(AutoHideGroup group)
+    // Removes a group from the strips. Its strip inside the layout, if it has one, goes with it once
+    // no other group is listed by it; a caller that is about to put the group's windows back beside
+    // that strip keeps it for the moment (see LayoutManager.DockAutoHideGroup).
+    internal void RemoveAutoHideGroup(AutoHideGroup group, bool releaseStub = true)
     {
         if (autoHideFlyout?.Window is { } shown && group.Windows.Contains(shown))
         {
@@ -750,29 +788,92 @@ public partial class DockSite : Control, IDockSurface
         }
 
         autoHideGroups.Remove(group);
+
+        if (releaseStub)
+        {
+            ReleaseStubIfUnused(group.Stub);
+        }
+
         RefreshAutoHideStrips();
+    }
+
+    // Takes a strip out of the layout when no group is listed by it any more.
+    internal void ReleaseStubIfUnused(AutoHideStub? stub)
+    {
+        if (stub is not null && !autoHideGroups.Any(group => ReferenceEquals(group.Stub, stub)))
+        {
+            LayoutManager.ReleaseStub(this, stub);
+        }
     }
 
     internal void ClearAutoHideGroups()
     {
         HideAutoHideFlyout();
+
+        // The layout is about to be rebuilt, so the strips only come out of it: collapsing the splits
+        // that held them is the rebuild's business.
+        foreach (var stub in autoHideGroups.Select(group => group.Stub).OfType<AutoHideStub>().Distinct().ToList())
+        {
+            LayoutManager.DiscardStub(stub);
+        }
+
         autoHideGroups.Clear();
         RefreshAutoHideStrips();
     }
 
-    // Synchronizes the edge tab strips with the current auto-hide groups.
+    // Synchronizes the tab strips, along the edges and inside the layout, with the current auto-hide
+    // groups.
     internal void RefreshAutoHideStrips()
     {
         // The tab a preview is waiting on may be taken out of the strip with the pointer still over
         // it, and WinUI does not promise a PointerExited for that: the wait is called off rather than
         // left to open a panel the pointer is no longer pointing at.
         CancelAutoHidePreview();
+        ReturnLostStubsToEdges();
 
         foreach (var (side, strip) in autoHideStrips)
         {
-            var groups = autoHideGroups.Where(g => g.Edge == side && g.Windows.Count > 0).ToList();
+            var groups = autoHideGroups.Where(g => g.Stub is null && g.Edge == side && g.Windows.Count > 0).ToList();
             strip.SetGroups(groups);
             strip.Visibility = groups.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        foreach (var stub in autoHideGroups.Select(group => group.Stub).OfType<AutoHideStub>().Distinct())
+        {
+            var groups = autoHideGroups.Where(g => ReferenceEquals(g.Stub, stub) && g.Windows.Count > 0).ToList();
+            stub.Strip.SetGroups(groups);
+            stub.Visibility = groups.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    // A strip whose split is no longer in the layout (the application replaced the layout from code)
+    // has nothing to be beside: its groups are listed along their edges again.
+    private void ReturnLostStubsToEdges()
+    {
+        foreach (var group in autoHideGroups)
+        {
+            if (group.Stub is { } stub && (stub.Owner is not { } owner || LayoutTree.Locate(this, owner) is null))
+            {
+                group.Stub = null;
+            }
+        }
+    }
+
+    // Gets every strip of tabs: the ones along the edges and the ones inside the layout.
+    private IEnumerable<AutoHideTabStrip> AllAutoHideStrips()
+    {
+        return autoHideStrips.Values.Concat(
+            autoHideGroups.Select(group => group.Stub).OfType<AutoHideStub>().Distinct().Select(stub => stub.Strip));
+    }
+
+    // A strip inside the layout has changed size: the panel that is out of it is placed against it.
+    internal void NotifyAutoHideStubResized(AutoHideStub stub)
+    {
+        if (autoHideFlyout?.Window is { } shown
+            && FindAutoHideGroup(shown) is { } group
+            && ReferenceEquals(group.Stub, stub))
+        {
+            PositionAutoHideFlyout(group);
         }
     }
 
@@ -1097,24 +1198,48 @@ public partial class DockSite : Control, IDockSurface
             return;
         }
 
-        var cellWidth = layoutRootPresenter.ActualWidth;
-        var cellHeight = layoutRootPresenter.ActualHeight;
-        var horizontal = group.Edge is DockSide.Left or DockSide.Right;
-        var size = AutoHideResizePolicy.Clamp(group.Size, horizontal ? cellWidth : cellHeight);
-
-        var (width, height) = horizontal ? (size, cellHeight) : (cellWidth, size);
+        var placed = AutoHideFlyoutPlacement.Place(group.Edge, AutoHideFlyoutArea(group), group.Size);
 
         // The grip goes on the side the panel came out of, which is only known here.
         autoHideFlyout.SetEdge(group.Edge);
 
-        autoHideFlyout.Width = width;
-        autoHideFlyout.Height = height;
+        autoHideFlyout.Width = placed.Width;
+        autoHideFlyout.Height = placed.Height;
 
-        var origin = layoutRootPresenter
+        Canvas.SetLeft(autoHideFlyout, placed.X);
+        Canvas.SetTop(autoHideFlyout, placed.Y);
+    }
+
+    // The area a group's panel may cover, in the dock site's coordinates: the whole of the layout for
+    // a group listed along an edge, and the split that holds its strip, down to the strip, for one
+    // listed inside the layout.
+    private PlacementRect AutoHideFlyoutArea(AutoHideGroup group)
+    {
+        if (group.Stub is { Owner: { } split } stub)
+        {
+            try
+            {
+                return AutoHideFlyoutPlacement.AreaBesideStrip(group.Edge, BoundsOf(split), BoundsOf(stub));
+            }
+            catch (ArgumentException)
+            {
+                // Not in the visual tree yet, which can be the case for a layout that has just been
+                // loaded: the panel is placed against the edge until the layout is.
+            }
+        }
+
+        var origin = layoutRootPresenter!
             .TransformToVisual(this)
             .TransformPoint(new Windows.Foundation.Point(0, 0));
-        Canvas.SetLeft(autoHideFlyout, origin.X + (group.Edge == DockSide.Right ? cellWidth - width : 0));
-        Canvas.SetTop(autoHideFlyout, origin.Y + (group.Edge == DockSide.Bottom ? cellHeight - height : 0));
+        return new PlacementRect(origin.X, origin.Y, layoutRootPresenter.ActualWidth, layoutRootPresenter.ActualHeight);
+
+        PlacementRect BoundsOf(FrameworkElement element)
+        {
+            var bounds = element
+                .TransformToVisual(this)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            return new PlacementRect(bounds.X, bounds.Y, bounds.Width, bounds.Height);
+        }
     }
 
     // Resizes the panel that is out to the size its grip is being dragged to, within what the
@@ -1130,7 +1255,8 @@ public partial class DockSite : Control, IDockSurface
         }
 
         var horizontal = group.Edge is DockSide.Left or DockSide.Right;
-        var available = horizontal ? layoutRootPresenter.ActualWidth : layoutRootPresenter.ActualHeight;
+        var area = AutoHideFlyoutArea(group);
+        var available = horizontal ? area.Width : area.Height;
         var clamped = AutoHideResizePolicy.Clamp(size, available);
 
         // A drag delivers a frame's worth of movement at a time, and most of them ask for a size
@@ -1231,7 +1357,7 @@ public partial class DockSite : Control, IDockSurface
             return;
         }
 
-        foreach (var strip in autoHideStrips.Values)
+        foreach (var strip in AllAutoHideStrips())
         {
             if (strip.Visibility == Visibility.Visible && IsWithin(strip, point))
             {

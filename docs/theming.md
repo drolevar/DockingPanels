@@ -145,6 +145,11 @@ The drag ghost is only shown for windows that cannot be torn off into a floating
 | `DockingFlyoutBackgroundBrush` | `SolidBackgroundFillColorSecondaryBrush` |
 | `DockingFlyoutBorderBrush` | `SurfaceStrokeColorDefaultBrush` |
 
+`DockingAutoHideTabStripBackgroundBrush` is the background of every auto-hide strip, along an edge or,
+with `DockSite.AutoHideStripPlacement="InPlace"`, inside the layout. An application that wants the
+strip of a panel kept in place to look like part of the area it belongs to, rather than a bar, can
+make it transparent.
+
 ## Metrics
 
 These are the same in every theme, so declare them directly in `Application.Resources`:

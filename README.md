@@ -324,6 +324,28 @@ between the size of a docked pane and four fifths of the area the panel slides o
 saved on a wide screen cannot cover a narrow one. `LayoutChanged` reports it once per drag, as
 `AutoHidePanelResized`, rather than once per frame.
 
+By default the tabs of every collapsed panel run along an edge of the whole dock site, under (or
+beside) everything the layout holds, so a panel that was below the documents leaves a strip that
+also runs under the panels next to them. `AutoHideStripPlacement` keeps the strip where the panel
+was instead:
+
+```xml
+<docking:DockSite AutoHideStripPlacement="InPlace">
+```
+
+With `InPlace` the strip sits at the end of the area the panel came out of and takes its room from
+that area and from nothing else: the panels beside it keep their full length, and when the panel
+slides out it covers that area only, from its strip, and not the panels beside it. The strip is
+part of the layout without being a pane of it, so splitting, docking, locating a window and saving
+the layout see the same tree with it as without it. The layout file records where each group's
+tabs were, so a layout saved with a strip in place brings it back in place whatever the property
+says when it is loaded (the strip is found again from where the panel came from), and one saved with
+the tabs along an edge keeps them there; a file written before this was recorded follows the
+property. A panel
+that has no place for a strip — it was in the middle of a split, or the only pane of its host, or
+one tab of a group that kept other windows docked — goes to an edge, as it does without the
+setting. Changing the property moves the strips of the panels that are collapsed at the time.
+
 Set `CanAutoHide="False"` (or `CanFloat="False"`) on a tool window to hide the affordance and block
 the operation. `CanAutoHide` covers the whole tab group: a group holding one window that must stay
 docked shows no pin button at all, rather than one that does nothing. The flag is saved with the

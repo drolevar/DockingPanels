@@ -294,6 +294,19 @@ public sealed partial class MainWindow : Window
         EventLog.Text = $"Hover previews wait: {DockSite.AutoHideOpenDelay.TotalMilliseconds} ms";
     }
 
+    // Where a collapsed panel's tab strip goes. Along the edge it runs under everything the layout holds;
+    // in place it stays under the area the panel came out of, so the panels beside that area keep their
+    // full length and the panel slides out over that area only. Collapse the Output panel with the other
+    // panels docked around the documents to see the difference.
+    private void OnToggleAutoHideStripPlacement(object sender, RoutedEventArgs e)
+    {
+        DockSite.AutoHideStripPlacement = ((ToggleButton)sender).IsChecked == true
+            ? AutoHideStripPlacement.InPlace
+            : AutoHideStripPlacement.Edge;
+
+        EventLog.Text = $"Auto-hide strips: {DockSite.AutoHideStripPlacement}";
+    }
+
     private void OnWindowEvent(object? sender, DockingWindowEventArgs e)
     {
         EventLog.Text = $"{e.Window.Title}: last event at {DateTime.Now:HH:mm:ss}";

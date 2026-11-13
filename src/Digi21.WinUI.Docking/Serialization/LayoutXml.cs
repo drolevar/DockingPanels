@@ -54,6 +54,11 @@ internal static class LayoutXml
                 writer.WriteAttributeString("RestoreRelativeSize", group.RestoreRelativeSize.ToString("R", CultureInfo.InvariantCulture));
             }
 
+            if (group.StripPlacement is { } stripPlacement)
+            {
+                writer.WriteAttributeString("StripPlacement", stripPlacement.ToString());
+            }
+
             WriteWindows(writer, group.Windows);
             writer.WriteEndElement();
         }
@@ -164,6 +169,12 @@ internal static class LayoutXml
                 if (double.TryParse(restoreRelativeText, NumberStyles.Float, CultureInfo.InvariantCulture, out var restoreRelative) && restoreRelative > 0)
                 {
                     group.RestoreRelativeSize = restoreRelative;
+                }
+
+                if (Enum.TryParse<AutoHideStripPlacement>((string?)element.Attribute("StripPlacement"), out var stripPlacement)
+                    && Enum.IsDefined(stripPlacement))
+                {
+                    group.StripPlacement = stripPlacement;
                 }
 
                 ReadWindows(element, group.Windows, nameof(DockingWindowState.AutoHide));

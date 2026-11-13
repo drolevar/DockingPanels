@@ -172,6 +172,57 @@ public class LayoutXmlTests
         Assert.Equal(1.0, group.RestoreRelativeSize);
     }
 
+    [Theory]
+    [InlineData(AutoHideStripPlacement.InPlace)]
+    [InlineData(AutoHideStripPlacement.Edge)]
+    public void RoundTrip_AutoHideGroupStripPlacement_IsPreserved(AutoHideStripPlacement placement)
+    {
+        var layout = new LayoutDocument { Root = new WorkspaceLayoutNode() };
+        var group = new AutoHideGroupNode { Edge = DockSide.Bottom, StripPlacement = placement };
+        group.Windows.Add(new LayoutWindowEntry("output", "AutoHide"));
+        layout.AutoHideGroups.Add(group);
+
+        using var stream = new MemoryStream();
+        LayoutXml.Write(stream, layout);
+        stream.Position = 0;
+        var restored = LayoutXml.Read(stream);
+
+        Assert.Equal(placement, Assert.Single(restored.AutoHideGroups).StripPlacement);
+    }
+
+    [Fact]
+    public void Write_AutoHideGroupWithoutAStripPlacement_WritesNone()
+    {
+        // A group that was never asked where its tabs go leaves the file as it was before the attribute.
+        var layout = new LayoutDocument { Root = new WorkspaceLayoutNode() };
+        var group = new AutoHideGroupNode { Edge = DockSide.Bottom };
+        group.Windows.Add(new LayoutWindowEntry("output", "AutoHide"));
+        layout.AutoHideGroups.Add(group);
+
+        using var stream = new MemoryStream();
+        LayoutXml.Write(stream, layout);
+
+        Assert.DoesNotContain("StripPlacement", Encoding.UTF8.GetString(stream.ToArray()));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" StripPlacement=\"Sideways\"")]
+    [InlineData(" StripPlacement=\"7\"")]
+    public void Read_AutoHideGroupWithNoUsableStripPlacement_LeavesItToTheDockSite(string attribute)
+    {
+        var xml = $"""
+            <DockSiteLayout Version="1">
+              <AutoHideGroup Edge="Bottom" Size="180"{attribute}>
+                <ToolWindow Id="output" State="AutoHide" />
+              </AutoHideGroup>
+            </DockSiteLayout>
+            """;
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(xml));
+        var restored = LayoutXml.Read(stream);
+
+        Assert.Null(Assert.Single(restored.AutoHideGroups).StripPlacement);
+    }
     [Fact]
     public void RoundTrip_FloatingWindows_ArePreserved()
     {

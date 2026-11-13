@@ -58,6 +58,7 @@
             <Button Click="OnToggleTheme" Content="Toggle Theme" />
             <ToggleButton Click="OnToggleAutoHideTrigger" Content="Click To Open Panels" />
             <ToggleButton Click="OnToggleAutoHideOpenDelay" Content="Delay Hover Previews" />
+            <ToggleButton Click="OnToggleAutoHideStripPlacement" Content="Strips In Place" />
         </local:WrapPanel>
 
         <TextBlock

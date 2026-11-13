@@ -85,7 +85,15 @@ public class DockSiteLayoutSerializer
 
         foreach (var group in dockSite.AutoHideGroups)
         {
-            var groupNode = new AutoHideGroupNode { Edge = group.Edge, Size = group.Size, Offset = group.Offset };
+            // Where the tabs are is part of the layout: a group saved in place comes back in place
+            // whatever the dock site is set to when the file is loaded.
+            var groupNode = new AutoHideGroupNode
+            {
+                Edge = group.Edge,
+                Size = group.Size,
+                Offset = group.Offset,
+                StripPlacement = group.Stub is null ? AutoHideStripPlacement.Edge : AutoHideStripPlacement.InPlace,
+            };
 
             if (group.RestoreHint is { } hint && CaptureSiblingReference(dockSite, hint.Sibling) is { } siblingReference)
             {
@@ -194,12 +202,24 @@ public class DockSiteLayoutSerializer
         switch (element)
         {
             case SplitContainer split:
+                var splitPanes = split.GetPanes();
+                if (splitPanes.Count == 1 && split.HasStubs)
+                {
+                    // A split that is only there for the strip of a collapsed panel is not part of the
+                    // layout the file describes: its one pane is, with the share of space the split had.
+                    // The strip itself is found again from the group's restore hint when the file is
+                    // loaded, if the group says it was in place.
+                    var onlyPane = Capture(splitPanes[0]);
+                    onlyPane.RelativeSize = DockSite.GetRelativeSize(split);
+                    return onlyPane;
+                }
+
                 var splitNode = new SplitLayoutNode
                 {
                     Orientation = split.Orientation,
                     RelativeSize = DockSite.GetRelativeSize(split),
                 };
-                foreach (var pane in split.GetPanes())
+                foreach (var pane in splitPanes)
                 {
                     splitNode.Children.Add(Capture(pane));
                 }
@@ -394,9 +414,14 @@ public class DockSiteLayoutSerializer
                 {
                     Offset = groupNode.Offset,
                     RestoreHint = restoreHint,
+                    RequestedPlacement = groupNode.StripPlacement,
                 });
             }
         }
+
+        // The groups are collapsed to their edges; where the dock site keeps strips in the layout, the
+        // neighbours they remember are in the tree now and the strips can be put beside them.
+        LayoutManager.PlaceAutoHideStubs(site);
 
         foreach (var floatingNode in layout.FloatingWindows)
         {
